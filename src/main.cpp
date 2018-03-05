@@ -84,12 +84,47 @@ int main() {
         string event = j[0].get<string>();
         if (event == "telemetry") {
           // j[1] is the data JSON object
+
+          // The global x positions of the waypoints.
           vector<double> ptsx = j[1]["ptsx"];
+          // The global y positions of the waypoints.
+          // This corresponds to the z coordinate in Unity since y is the up-down direction.
           vector<double> ptsy = j[1]["ptsy"];
+          // The global x position of the vehicle.
           double px = j[1]["x"];
+          // The global y position of the vehicle.
           double py = j[1]["y"];
+          // The orientation of the vehicle in radians converted from the Unity format to
+          // the standard format expected in most mathematical functions.
           double psi = j[1]["psi"];
+          // The current velocity in mph.
           double v = j[1]["speed"];
+
+          cout << ptsx.size() << endl << endl;
+          for (auto i = 0; i < ptsx.size(); ++i) {
+            // shift car's reference angle to 90 degrees
+            double shift_x = ptsx[i] - px;
+            double shift_y = ptsy[i] - py;
+
+            ptsx[i] = shift_x * cos(0.0 - psi) - shift_y * sin(0.0 - psi);
+            ptsy[i] = shift_x * sin(0.0 - psi) + shift_y * cos(0.0 - psi);
+          }
+
+          // transform the ptsx and ptsy vectors to Eigen's VectorXd
+          double *ptrx = &ptsx[0];
+          Eigen::Map<Eigen::VectorXd> ptsx_transformed(ptrx, ptsx.size());
+
+          double *ptry = &ptsy[0];
+          Eigen::Map<Eigen::VectorXd> ptsy_transformed(ptry, ptsy.size());
+
+          auto coeffs = polyfit(ptsx_transformed, ptsy_transformed, 3);
+
+          // calculate cte and epsi
+          double cte = polyeval(coeffs, 0);
+
+          // epsi = psi - atan(coeffs[1] + 2 * px * coeffs[2] + 3 * coeffs[3] * pow(px, 2))
+          // Since we've made a shift of px and py and the psi angle, the formula is the following
+          double epsi = -atan(coeffs[1]);
 
           /*
           * TODO: Calculate steering angle and throttle using MPC.
@@ -97,18 +132,36 @@ int main() {
           * Both are in between [-1, 1].
           *
           */
-          double steer_value;
-          double throttle_value;
+          double steer_value = j[1]["steering_angle"];
+          double throttle_value = j[1]["throttle"];
+
+          Eigen::VectorXd state(6);
+          state << 0, 0, 0, v, cte, epsi;
+
+          vector<double> vars = mpc.Solve(state, coeffs);
+
+          steer_value = vars[0];
+          throttle_value = vars[1];
+
+          double Lf = 2.67;
 
           json msgJson;
           // NOTE: Remember to divide by deg2rad(25) before you send the steering value back.
           // Otherwise the values will be in between [-deg2rad(25), deg2rad(25] instead of [-1, 1].
-          msgJson["steering_angle"] = steer_value;
+          msgJson["steering_angle"] = steer_value / (deg2rad(25) * Lf);
           msgJson["throttle"] = throttle_value;
 
           //Display the MPC predicted trajectory 
           vector<double> mpc_x_vals;
           vector<double> mpc_y_vals;
+
+          for (size_t i = 2; i < vars.size(); i++) {
+            if (i % 2 == 0) {
+              mpc_x_vals.push_back(vars[i]);
+            } else {
+              mpc_y_vals.push_back(vars[i]);
+            }
+          }
 
           //.. add (x,y) points to list here, points are in reference to the vehicle's coordinate system
           // the points in the simulator are connected by a Green line
@@ -119,6 +172,14 @@ int main() {
           //Display the waypoints/reference line
           vector<double> next_x_vals;
           vector<double> next_y_vals;
+
+          double poly_inc = 2.5;
+          size_t num_points = 25;
+
+          for (size_t i = 1; i < num_points; i++) {
+            next_x_vals.push_back(poly_inc * i);
+            next_y_vals.push_back(polyeval(coeffs, poly_inc * i));
+          }
 
           //.. add (x,y) points to list here, points are in reference to the vehicle's coordinate system
           // the points in the simulator are connected by a Yellow line
@@ -138,7 +199,7 @@ int main() {
           //
           // NOTE: REMEMBER TO SET THIS TO 100 MILLISECONDS BEFORE
           // SUBMITTING.
-          this_thread::sleep_for(chrono::milliseconds(100));
+          //this_thread::sleep_for(chrono::milliseconds(100));
           ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
         }
       } else {
