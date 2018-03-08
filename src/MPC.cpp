@@ -54,21 +54,21 @@ public:
 
       // The part of the cost based on the reference state.
       for (size_t t = 0; t < N; t++) {
-        fg[0] += 2000 * CppAD::pow(vars[cte_start + t], 2);
-        fg[0] += 2000 * CppAD::pow(vars[epsi_start + t], 2);
+        fg[0] += 1000 * CppAD::pow(vars[cte_start + t], 2);
+        fg[0] += 5000 * CppAD::pow(vars[epsi_start + t], 2);
         fg[0] += CppAD::pow(vars[v_start + t] - ref_v, 2);
       }
 
       // Minimize the use of actuators.
       for (size_t t = 0; t < N - 1; t++) {
-        fg[0] += 5 * CppAD::pow(vars[delta_start + t], 2);
-        fg[0] += 5 * CppAD::pow(vars[a_start + t], 2);
+        fg[0] += 50 * CppAD::pow(vars[delta_start + t], 2);
+        fg[0] += 50 * CppAD::pow(vars[a_start + t], 2);
       }
 
       // Minimize the value gap between sequential actuations.
       for (size_t t = 0; t < N - 2; t++) {
-        fg[0] += 200 * CppAD::pow(vars[delta_start + t + 1] - vars[delta_start + t], 2);
-        fg[0] += 100 * CppAD::pow(vars[a_start + t + 1] - vars[a_start + t], 2);
+        fg[0] += 10 * CppAD::pow(vars[delta_start + t + 1] - vars[delta_start + t], 2);
+        fg[0] += 10 * CppAD::pow(vars[a_start + t + 1] - vars[a_start + t], 2);
       }
 
       //
@@ -108,6 +108,11 @@ public:
         // Only consider the actuation at time t.
         AD<double> delta0 = vars[delta_start + t - 1];
         AD<double> a0 = vars[a_start + t - 1];
+
+        if (t > 1) {   // use previous actuations (to account for latency)
+          a0 = vars[a_start + t - 2];
+          delta0 = vars[delta_start + t - 2];
+        }
 
         AD<double> f0 = coeffs[0] + coeffs[1] * x0 + coeffs[2] * CppAD::pow(x0, 2) + coeffs[3] * CppAD::pow(x0, 3);
         AD<double> psides0 = CppAD::atan(3 * coeffs[3] * CppAD::pow(x0, 2) + 2 * coeffs[2] * x0 + coeffs[1]);
@@ -252,7 +257,7 @@ vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) {
   result.push_back(solution.x[delta_start]);
   result.push_back(solution.x[a_start]);
 
-  for (int i = 0; i < N-1; i++) {
+  for (size_t i = 0; i < N-1; i++) {
     result.push_back(solution.x[x_start + i + 1]);
     result.push_back(solution.x[y_start + i + 1]);
   }
