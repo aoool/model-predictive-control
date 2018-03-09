@@ -6,7 +6,7 @@
 
 using CppAD::AD;
 
-size_t N = 10;    // timestep length
+size_t N = 7;     // timestep length
 double dt = 0.1;  // duration
 
 // This value assumes the model presented in the classroom is used.
@@ -22,8 +22,8 @@ double dt = 0.1;  // duration
 const double Lf = 2.67;
 
 // Both the reference cross track and orientation errors are 0.
-// The reference velocity is set to 40 mph.
-double ref_v = 40;
+// The reference velocity is set to 120 mph.
+double ref_v = 120;
 
 // The solver takes all the state variables and actuator
 // variables in a singular vector. Thus, we should to establish
@@ -54,21 +54,25 @@ public:
 
       // The part of the cost based on the reference state.
       for (size_t t = 0; t < N; t++) {
-        fg[0] += 1000 * CppAD::pow(vars[cte_start + t], 2);
-        fg[0] += 5000 * CppAD::pow(vars[epsi_start + t], 2);
-        fg[0] += CppAD::pow(vars[v_start + t] - ref_v, 2);
+        fg[0] += 2000 * CppAD::pow(vars[cte_start + t], 2);
+        fg[0] += 3000 * CppAD::pow(vars[epsi_start + t], 2);
+        fg[0] += 7 * CppAD::pow(vars[v_start + t] - ref_v, 2);
+        fg[0] += 5 * CppAD::pow(vars[cte_start + t] * vars[v_start + t], 2);
+        fg[0] += 5 * CppAD::pow(vars[epsi_start + t] * vars[v_start + t], 2);
       }
 
       // Minimize the use of actuators.
       for (size_t t = 0; t < N - 1; t++) {
-        fg[0] += 50 * CppAD::pow(vars[delta_start + t], 2);
-        fg[0] += 50 * CppAD::pow(vars[a_start + t], 2);
+        fg[0] += 100 * CppAD::pow(vars[delta_start + t], 2);
+        fg[0] += CppAD::pow(vars[a_start + t], 2);
+        fg[0] += 250 * CppAD::pow(vars[delta_start + t] * vars[v_start + t], 2);
+        fg[0] += 500 * CppAD::pow(vars[delta_start + t] * vars[a_start + t], 2);
       }
 
       // Minimize the value gap between sequential actuations.
       for (size_t t = 0; t < N - 2; t++) {
-        fg[0] += 10 * CppAD::pow(vars[delta_start + t + 1] - vars[delta_start + t], 2);
-        fg[0] += 10 * CppAD::pow(vars[a_start + t + 1] - vars[a_start + t], 2);
+        fg[0] += CppAD::pow(vars[delta_start + t + 1] - vars[delta_start + t], 2);
+        fg[0] += CppAD::pow(vars[a_start + t + 1] - vars[a_start + t], 2);
       }
 
       //
@@ -106,10 +110,15 @@ public:
         AD<double> epsi0 = vars[epsi_start + t - 1];
 
         // Only consider the actuation at time t.
-        AD<double> delta0 = vars[delta_start + t - 1];
-        AD<double> a0 = vars[a_start + t - 1];
+        AD<double> delta0;
+        AD<double> a0;
 
-        if (t > 1) {   // use previous actuations (to account for latency)
+        if (t <= 1) {
+            a0 = vars[a_start + t - 1];
+            delta0 = vars[delta_start + t - 1];
+        } else {
+          // t >= 2
+          // here we are taking into account latency, which equals our dt, i.e., 100ms
           a0 = vars[a_start + t - 2];
           delta0 = vars[delta_start + t - 2];
         }
@@ -145,7 +154,6 @@ MPC::MPC() = default;
 MPC::~MPC() = default;
 
 vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) {
-  bool ok = true;
   typedef CPPAD_TESTVECTOR(double) Dvector;
 
   double x = state[0];
@@ -244,19 +252,18 @@ vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) {
       options, vars, vars_lowerbound, vars_upperbound, constraints_lowerbound,
       constraints_upperbound, fg_eval, solution);
 
-  // Check some of the solution values
-  ok &= solution.status == CppAD::ipopt::solve_result<Dvector>::success;
-
   // Cost
   auto cost = solution.obj_value;
   std::cout << "Cost " << cost << std::endl;
 
-  //return { solution.x[delta_start], solution.x[a_start] };
+  // preparing the result vector
   vector<double> result;
 
+  // the first two values are the actuations
   result.push_back(solution.x[delta_start]);
   result.push_back(solution.x[a_start]);
 
+  // the rest are the (x,y) points used for drawing green line in the simulator
   for (size_t i = 0; i < N-1; i++) {
     result.push_back(solution.x[x_start + i + 1]);
     result.push_back(solution.x[y_start + i + 1]);
