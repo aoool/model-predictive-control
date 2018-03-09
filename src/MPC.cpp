@@ -190,8 +190,8 @@ vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) {
   // Set all non-actuators upper and lower limits
   // to the max negative and positive values.
   for (size_t i = 0; i < delta_start; i++) {
-    vars_lowerbound[i] = -1.0e19; //std::numeric_limits<double>::min();
-    vars_upperbound[i] = 1.0e19; //std::numeric_limits<double>::max();
+    vars_lowerbound[i] = -1.0e19;
+    vars_upperbound[i] = 1.0e19; 
   }
 
   // The upper and lower limits of delta are set to -25 and 25
